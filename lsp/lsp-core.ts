@@ -432,11 +432,15 @@ export function getOrCreateManager(cwd: string): LSPManager {
 export function getManager(): LSPManager | null { return sharedManager; }
 
 export async function shutdownManager(): Promise<void> {
-  if (sharedManager) {
-    await sharedManager.shutdown();
-    sharedManager = null;
-    managerCwd = null;
-  }
+  const manager = sharedManager;
+  if (!manager) return;
+
+  // Clear singleton pointers first so new requests never receive a manager
+  // that's currently being shut down.
+  sharedManager = null;
+  managerCwd = null;
+
+  await manager.shutdown();
 }
 
 // LSP Manager

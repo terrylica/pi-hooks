@@ -100,6 +100,46 @@ function cancelledToolResult() {
   };
 }
 
+type ExecuteArgs = {
+  signal: AbortSignal | undefined;
+  onUpdate: ((update: { content: Array<{ type: "text"; text: string }>; details?: Record<string, unknown> }) => void) | undefined;
+  ctx: { cwd: string };
+};
+
+function isAbortSignalLike(value: unknown): value is AbortSignal {
+  return !!value
+    && typeof value === "object"
+    && "aborted" in value
+    && typeof (value as any).aborted === "boolean"
+    && typeof (value as any).addEventListener === "function";
+}
+
+function isContextLike(value: unknown): value is { cwd: string } {
+  return !!value && typeof value === "object" && typeof (value as any).cwd === "string";
+}
+
+function normalizeExecuteArgs(onUpdateArg: unknown, ctxArg: unknown, signalArg: unknown): ExecuteArgs {
+  // Runtime >= 0.51: (signal, onUpdate, ctx)
+  if (isContextLike(signalArg)) {
+    return {
+      signal: isAbortSignalLike(onUpdateArg) ? onUpdateArg : undefined,
+      onUpdate: typeof ctxArg === "function" ? ctxArg as ExecuteArgs["onUpdate"] : undefined,
+      ctx: signalArg,
+    };
+  }
+
+  // Runtime <= 0.50: (onUpdate, ctx, signal)
+  if (isContextLike(ctxArg)) {
+    return {
+      signal: isAbortSignalLike(signalArg) ? signalArg : undefined,
+      onUpdate: typeof onUpdateArg === "function" ? onUpdateArg as ExecuteArgs["onUpdate"] : undefined,
+      ctx: ctxArg,
+    };
+  }
+
+  throw new Error("Invalid tool execution context");
+}
+
 function formatLocation(loc: { uri: string; range?: { start?: { line: number; character: number } } }, cwd?: string): string {
   const abs = uriToPath(loc.uri);
   const display = cwd && path.isAbsolute(abs) ? path.relative(cwd, abs) : abs;
@@ -191,9 +231,12 @@ Actions: definition, references, hover, signature, rename (require file + line/c
 Use bash to find files: find src -name "*.ts" -type f`,
     parameters: LspParams,
 
-    async execute(_toolCallId, params, onUpdate, ctx, signal) {
+    async execute(_toolCallId, params, onUpdateArg, ctxArg, signalArg) {
+      const { signal, onUpdate, ctx } = normalizeExecuteArgs(onUpdateArg, ctxArg, signalArg);
       if (signal?.aborted) return cancelledToolResult();
-      onUpdate?.({ content: [{ type: "text", text: "Working..." }], details: { status: "working" } });
+      if (onUpdate) {
+        onUpdate({ content: [{ type: "text", text: "Working..." }], details: { status: "working" } });
+      }
 
       const manager = getOrCreateManager(ctx.cwd);
       const { action, file, files, line, column, endLine, endColumn, query, newName, severity } = params as LspParamsType;
