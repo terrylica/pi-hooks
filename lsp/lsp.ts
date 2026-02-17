@@ -537,8 +537,7 @@ export default function (pi: ExtensionAPI) {
       diagnosticsAbort?.abort();
       diagnosticsAbort = abort;
 
-      setActivity("working");
-
+      // Avoid showing a transient "working" state during agent-end diagnostics.
       const files = Array.from(touchedFiles.entries());
       touchedFiles.clear();
 
