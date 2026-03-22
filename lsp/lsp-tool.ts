@@ -218,7 +218,7 @@ Actions: definition, references, hover, signature, rename (require file + line/c
 Use bash to find files: find src -name "*.ts" -type f`,
     parameters: LspParams,
 
-    async execute(_toolCallId, params, onUpdateArg, ctxArg, signalArg) {
+    async execute(_toolCallId, params, signalArg, onUpdateArg, ctxArg) {
       const { signal, onUpdate, ctx } = normalizeExecuteArgs(onUpdateArg, ctxArg, signalArg);
       if (signal?.aborted) return cancelledToolResult();
       const manager = getOrCreateManager(ctx.cwd);
