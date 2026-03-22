@@ -28,7 +28,7 @@ import { Type, type Static } from "@sinclair/typebox";
 import { StringEnum } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
-import { getOrCreateManager, formatDiagnostic, filterDiagnosticsBySeverity, uriToPath, resolvePosition, type SeverityFilter } from "./lsp-core.js";
+import { getOrCreateManager, formatDiagnostic, filterDiagnosticsBySeverity, uriToPath, resolvePosition, collectSymbols, type SeverityFilter } from "./lsp-core.js";
 
 const PREVIEW_LINES = 10;
 
@@ -100,6 +100,46 @@ function cancelledToolResult() {
   };
 }
 
+type ExecuteArgs = {
+  signal: AbortSignal | undefined;
+  onUpdate: ((update: { content: Array<{ type: "text"; text: string }>; details?: Record<string, unknown> }) => void) | undefined;
+  ctx: { cwd: string };
+};
+
+function isAbortSignalLike(value: unknown): value is AbortSignal {
+  return !!value
+    && typeof value === "object"
+    && "aborted" in value
+    && typeof (value as any).aborted === "boolean"
+    && typeof (value as any).addEventListener === "function";
+}
+
+function isContextLike(value: unknown): value is { cwd: string } {
+  return !!value && typeof value === "object" && typeof (value as any).cwd === "string";
+}
+
+function normalizeExecuteArgs(onUpdateArg: unknown, ctxArg: unknown, signalArg: unknown): ExecuteArgs {
+  // Runtime >= 0.51: (signal, onUpdate, ctx)
+  if (isContextLike(signalArg)) {
+    return {
+      signal: isAbortSignalLike(onUpdateArg) ? onUpdateArg : undefined,
+      onUpdate: typeof ctxArg === "function" ? ctxArg as ExecuteArgs["onUpdate"] : undefined,
+      ctx: signalArg,
+    };
+  }
+
+  // Runtime <= 0.50: (onUpdate, ctx, signal)
+  if (isContextLike(ctxArg)) {
+    return {
+      signal: isAbortSignalLike(signalArg) ? signalArg : undefined,
+      onUpdate: typeof onUpdateArg === "function" ? onUpdateArg as ExecuteArgs["onUpdate"] : undefined,
+      ctx: ctxArg,
+    };
+  }
+
+  throw new Error("Invalid tool execution context");
+}
+
 function formatLocation(loc: { uri: string; range?: { start?: { line: number; character: number } } }, cwd?: string): string {
   const abs = uriToPath(loc.uri);
   const display = cwd && path.isAbsolute(abs) ? path.relative(cwd, abs) : abs;
@@ -126,19 +166,6 @@ function formatSignature(help: any): string {
   return text;
 }
 
-function collectSymbols(symbols: any[], depth = 0, lines: string[] = [], query?: string): string[] {
-  for (const sym of symbols) {
-    const name = sym?.name ?? "<unknown>";
-    if (query && !name.toLowerCase().includes(query.toLowerCase())) {
-      if (sym.children?.length) collectSymbols(sym.children, depth + 1, lines, query);
-      continue;
-    }
-    const loc = sym?.range?.start ? `${sym.range.start.line + 1}:${sym.range.start.character + 1}` : "";
-    lines.push(`${"  ".repeat(depth)}${name}${loc ? ` (${loc})` : ""}`);
-    if (sym.children?.length) collectSymbols(sym.children, depth + 1, lines, query);
-  }
-  return lines;
-}
 
 function formatWorkspaceEdit(edit: any, cwd?: string): string {
   const lines: string[] = [];
@@ -191,10 +218,9 @@ Actions: definition, references, hover, signature, rename (require file + line/c
 Use bash to find files: find src -name "*.ts" -type f`,
     parameters: LspParams,
 
-    async execute(_toolCallId, params, signal, onUpdate, ctx) {
+    async execute(_toolCallId, params, signalArg, onUpdateArg, ctxArg) {
+      const { signal, onUpdate, ctx } = normalizeExecuteArgs(onUpdateArg, ctxArg, signalArg);
       if (signal?.aborted) return cancelledToolResult();
-      onUpdate?.({ content: [{ type: "text", text: "Working..." }], details: { status: "working" } });
-
       const manager = getOrCreateManager(ctx.cwd);
       const { action, file, files, line, column, endLine, endColumn, query, newName, severity } = params as LspParamsType;
       const sevFilter: SeverityFilter = severity || "all";
@@ -309,7 +335,7 @@ Use bash to find files: find src -name "*.ts" -type f`,
     },
 
     renderResult(result, options, theme) {
-      if (options.isPartial) return new Text(theme.fg("warning", "Working..."), 0, 0);
+      if (options.isPartial) return new Text("", 0, 0);
 
       const textContent = (result.content?.find((c: any) => c.type === "text") as any)?.text || "";
       const lines = textContent.split("\n");

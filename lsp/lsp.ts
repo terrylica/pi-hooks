@@ -32,7 +32,7 @@ function diagnosticsWaitMsForFile(filePath: string): number {
   return DIAGNOSTICS_WAIT_MS_DEFAULT;
 }
 const DIAGNOSTICS_PREVIEW_LINES = 10;
-const LSP_WORKING_MESSAGE = "LSP: Working...";
+const LSP_IDLE_SHUTDOWN_MS = 2 * 60 * 1000;
 const DIM = "\x1b[2m", GREEN = "\x1b[32m", YELLOW = "\x1b[33m", RESET = "\x1b[0m";
 const DEFAULT_HOOK_MODE: HookMode = "agent_end";
 const SETTINGS_NAMESPACE = "lsp";
@@ -81,7 +81,7 @@ export default function (pi: ExtensionAPI) {
   let activity: LspActivity = "idle";
   let diagnosticsAbort: AbortController | null = null;
   let shuttingDown = false;
-  let lspWorkingMessageActive = false;
+  let idleShutdownTimer: NodeJS.Timeout | null = null;
 
   const touchedFiles: Map<string, boolean> = new Map();
   const globalSettingsPath = path.join(os.homedir(), ".pi", "agent", "settings.json");
@@ -196,20 +196,32 @@ export default function (pi: ExtensionAPI) {
     updateLspStatus();
   }
 
-  function showLspWorkingMessage(ctx: ExtensionContext): void {
-    if (!ctx.hasUI) return;
-    const ui = ctx.ui as { setWorkingMessage?: (text?: string) => void };
-    if (!ui.setWorkingMessage) return;
-    ui.setWorkingMessage(LSP_WORKING_MESSAGE);
-    lspWorkingMessageActive = true;
+  function clearIdleShutdownTimer(): void {
+    if (!idleShutdownTimer) return;
+    clearTimeout(idleShutdownTimer);
+    idleShutdownTimer = null;
   }
 
-  function clearLspWorkingMessage(ctx: ExtensionContext): void {
-    if (!lspWorkingMessageActive) return;
-    lspWorkingMessageActive = false;
-    if (!ctx.hasUI) return;
-    const ui = ctx.ui as { setWorkingMessage?: (text?: string) => void };
-    ui.setWorkingMessage?.();
+  async function shutdownLspServersForIdle(): Promise<void> {
+    diagnosticsAbort?.abort();
+    diagnosticsAbort = null;
+    setActivity("idle");
+
+    await shutdownManager();
+    activeClients.clear();
+    updateLspStatus();
+  }
+
+  function scheduleIdleShutdown(): void {
+    clearIdleShutdownTimer();
+
+    idleShutdownTimer = setTimeout(() => {
+      idleShutdownTimer = null;
+      if (shuttingDown) return;
+      void shutdownLspServersForIdle();
+    }, LSP_IDLE_SHUTDOWN_MS);
+
+    (idleShutdownTimer as any).unref?.();
   }
 
   function updateLspStatus(): void {
@@ -217,11 +229,7 @@ export default function (pi: ExtensionAPI) {
 
     const clients = activeClients.size > 0 ? [...activeClients].join(", ") : "";
     const clientsText = clients ? `${DIM}${clients}${RESET}` : "";
-    const activityText = activity === "loading"
-      ? `${DIM}Loading...${RESET}`
-      : activity === "working"
-        ? `${DIM}Working...${RESET}`
-        : "";
+    const activityHint = activity === "idle" ? "" : `${DIM}•${RESET}`;
 
     if (hookMode === "disabled") {
       const text = clientsText
@@ -232,7 +240,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     let text = `${GREEN}LSP${RESET}`;
-    if (activityText) text += ` ${activityText}`;
+    if (activityHint) text += ` ${activityHint}`;
     if (clientsText) text += ` ${clientsText}`;
     statusUpdateFn("lsp", text);
   }
@@ -458,6 +466,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async () => {
     shuttingDown = true;
+    clearIdleShutdownTimer();
     diagnosticsAbort?.abort();
     diagnosticsAbort = null;
     setActivity("idle");
@@ -468,17 +477,35 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("tool_call", async (event, ctx) => {
-    if (event.toolName !== "lsp") return;
-    const files = extractLspFiles(event.input);
-    for (const file of files) {
-      ensureActiveClientForFile(file, ctx.cwd);
+    const input = (event.input && typeof event.input === "object")
+      ? event.input as Record<string, unknown>
+      : {};
+
+    if (event.toolName === "lsp") {
+      clearIdleShutdownTimer();
+      const files = extractLspFiles(input);
+      for (const file of files) {
+        ensureActiveClientForFile(file, ctx.cwd);
+      }
+      return;
     }
+
+    if (event.toolName !== "read" && event.toolName !== "write" && event.toolName !== "edit") return;
+
+    clearIdleShutdownTimer();
+    const filePath = typeof input.path === "string" ? input.path : undefined;
+    if (!filePath) return;
+
+    const absPath = ensureActiveClientForFile(filePath, ctx.cwd);
+    if (!absPath) return;
+
+    void getOrCreateManager(ctx.cwd).getClientsForFile(absPath).catch(() => {});
   });
 
-  pi.on("agent_start", async (_event, ctx) => {
+  pi.on("agent_start", async () => {
+    clearIdleShutdownTimer();
     diagnosticsAbort?.abort();
     diagnosticsAbort = null;
-    clearLspWorkingMessage(ctx);
     setActivity("idle");
     touchedFiles.clear();
   });
@@ -494,57 +521,58 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.on("agent_end", async (event, ctx) => {
-    if (hookMode !== "agent_end") return;
-
-    if (agentWasAborted(event)) {
-      // Don't run diagnostics on aborted/error runs.
-      touchedFiles.clear();
-      return;
-    }
-
-    if (touchedFiles.size === 0) return;
-    if (!ctx.isIdle() || ctx.hasPendingMessages()) return;
-
-    const abort = new AbortController();
-    diagnosticsAbort?.abort();
-    diagnosticsAbort = abort;
-
-    setActivity("working");
-    showLspWorkingMessage(ctx);
-
-    const files = Array.from(touchedFiles.entries());
-    touchedFiles.clear();
-
     try {
-      const outputs: string[] = [];
-      for (const [filePath, includeWarnings] of files) {
-        if (shuttingDown || abort.signal.aborted) return;
-        if (!ctx.isIdle() || ctx.hasPendingMessages()) {
-          abort.abort();
-          return;
+      if (hookMode !== "agent_end") return;
+
+      if (agentWasAborted(event)) {
+        // Don't run diagnostics on aborted/error runs.
+        touchedFiles.clear();
+        return;
+      }
+
+      if (touchedFiles.size === 0) return;
+      if (!ctx.isIdle() || ctx.hasPendingMessages()) return;
+
+      const abort = new AbortController();
+      diagnosticsAbort?.abort();
+      diagnosticsAbort = abort;
+
+      // Avoid showing a transient "working" state during agent-end diagnostics.
+      const files = Array.from(touchedFiles.entries());
+      touchedFiles.clear();
+
+      try {
+        const outputs: string[] = [];
+        for (const [filePath, includeWarnings] of files) {
+          if (shuttingDown || abort.signal.aborted) return;
+          if (!ctx.isIdle() || ctx.hasPendingMessages()) {
+            abort.abort();
+            return;
+          }
+
+          const output = await collectDiagnostics(filePath, ctx, includeWarnings, true, false);
+          if (abort.signal.aborted) return;
+          if (output) outputs.push(output);
         }
 
-        const output = await collectDiagnostics(filePath, ctx, includeWarnings, true, false);
-        if (abort.signal.aborted) return;
-        if (output) outputs.push(output);
-      }
+        if (shuttingDown || abort.signal.aborted) return;
 
-      if (shuttingDown || abort.signal.aborted) return;
-
-      if (outputs.length) {
-        pi.sendMessage({
-          customType: "lsp-diagnostics",
-          content: outputs.join("\n"),
-          display: true,
-        }, {
-          triggerTurn: true,
-          deliverAs: "followUp",
-        });
+        if (outputs.length) {
+          pi.sendMessage({
+            customType: "lsp-diagnostics",
+            content: outputs.join("\n"),
+            display: true,
+          }, {
+            triggerTurn: true,
+            deliverAs: "followUp",
+          });
+        }
+      } finally {
+        if (diagnosticsAbort === abort) diagnosticsAbort = null;
+        if (!shuttingDown) setActivity("idle");
       }
     } finally {
-      if (diagnosticsAbort === abort) diagnosticsAbort = null;
-      if (!shuttingDown) setActivity("idle");
-      clearLspWorkingMessage(ctx);
+      if (!shuttingDown) scheduleIdleShutdown();
     }
   });
 

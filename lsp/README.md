@@ -82,7 +82,7 @@ The extension spawns binaries from your PATH.
 3. Default (`agent_end`): at agent end, sends touched files to LSP and posts a diagnostics message
 4. Optional (`edit_write`): per `write`/`edit`, appends diagnostics to the tool result
 5. Shows notification with diagnostic summary
-6. **Memory Management**: Keeps up to 30 files open per LSP server (LRU eviction) and automatically closes idle files (> 60s) to prevent memory bloat in long-running sessions.
+6. **Memory Management**: Keeps up to 30 files open per LSP server (LRU eviction), automatically closes idle files (> 60s), and shuts down all LSP servers after 2 minutes of post-agent inactivity (servers restart lazily when files are read again).
 7. **Robustness**: Reuses cached diagnostics if a server doesn't re-publish them for unchanged files, avoiding false timeouts on re-analysis.
 
 ### Tool (on-demand queries)
