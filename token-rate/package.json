@@ -1,6 +1,6 @@
 {
   "name": "token-rate-pi",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Token rate status extension for pi-coding-agent - shows average output tokens per second",
   "type": "module",
   "scripts": {
