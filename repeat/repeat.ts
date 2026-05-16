@@ -4,9 +4,9 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { DynamicBorder, createEditTool, createWriteTool } from "@mariozechner/pi-coding-agent";
-import { Container, SelectList, Spacer, Text, getEditorKeybindings, truncateToWidth, type SelectItem } from "@mariozechner/pi-tui";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { DynamicBorder, createEditTool, createWriteTool } from "@earendil-works/pi-coding-agent";
+import { Container, SelectList, Spacer, Text, decodeKittyPrintable, getKeybindings, truncateToWidth, type SelectItem } from "@earendil-works/pi-tui";
 
 type RepeatToolName = "bash" | "edit" | "write";
 
@@ -35,6 +35,16 @@ function truncatePreview(text: string, max: number): string {
 	const cleaned = text.replace(/\s+/g, " ").trim();
 	if (cleaned.length <= max) return cleaned;
 	return `${cleaned.slice(0, Math.max(0, max - 3))}...`;
+}
+
+function getSearchInputCharacter(data: string): string | undefined {
+	const decoded = decodeKittyPrintable(data);
+	if (decoded) return decoded;
+	if (data.length !== 1) return undefined;
+
+	const code = data.charCodeAt(0);
+	if (code < 32 || code === 0x7f || (code >= 0x80 && code <= 0x9f)) return undefined;
+	return data;
 }
 
 function getExternalEditor(): string | null {
@@ -316,8 +326,8 @@ async function showRepeatPicker(ctx: any, items: SelectItem[]): Promise<string |
 			render: (width) => container.render(width),
 			invalidate: () => container.invalidate(),
 			handleInput: (data) => {
-				const kb = getEditorKeybindings();
-				if (kb.matches(data, "selectCancel")) {
+				const kb = getKeybindings();
+				if (kb.matches(data, "tui.select.cancel")) {
 					if (searchQuery) {
 						searchQuery = "";
 						applyFilter();
@@ -328,7 +338,7 @@ async function showRepeatPicker(ctx: any, items: SelectItem[]): Promise<string |
 					tui.requestRender();
 					return;
 				}
-				if (kb.matches(data, "deleteCharBackward")) {
+				if (kb.matches(data, "tui.editor.deleteCharBackward")) {
 					if (searchQuery.length > 0) {
 						searchQuery = searchQuery.slice(0, -1);
 						applyFilter();
@@ -337,12 +347,9 @@ async function showRepeatPicker(ctx: any, items: SelectItem[]): Promise<string |
 					}
 				}
 
-				const hasControlChars = [...data].some((ch) => {
-					const code = ch.charCodeAt(0);
-					return code < 32 || code === 0x7f || (code >= 0x80 && code <= 0x9f);
-				});
-				if (!hasControlChars && data.length > 0) {
-					searchQuery += data;
+				const searchChar = getSearchInputCharacter(data);
+				if (searchChar) {
+					searchQuery += searchChar;
 					applyFilter();
 					tui.requestRender();
 					return;

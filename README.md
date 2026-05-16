@@ -1,6 +1,6 @@
 # pi-extensions
 
-Minimal reference extensions for [`pi-coding-agent`](https://www.npmjs.com/package/@mariozechner/pi-coding-agent).
+Minimal reference extensions for [`pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent).
 
 ## Quick Setup
 

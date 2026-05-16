@@ -17,19 +17,20 @@ declare module "node:path" {
 	export = path;
 }
 
-declare module "@mariozechner/pi-coding-agent" {
+declare module "@earendil-works/pi-coding-agent" {
 	export type ExtensionAPI = any;
 	export const DynamicBorder: any;
 	export const createWriteTool: any;
 	export const createEditTool: any;
 }
 
-declare module "@mariozechner/pi-tui" {
+declare module "@earendil-works/pi-tui" {
 	export const Container: any;
 	export const SelectList: any;
 	export const Spacer: any;
 	export const Text: any;
-	export const getEditorKeybindings: any;
+	export const decodeKittyPrintable: any;
+	export const getKeybindings: any;
 	export const truncateToWidth: any;
 	export type SelectItem = any;
 }

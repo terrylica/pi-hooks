@@ -27,18 +27,19 @@ declare module "node:path" {
 	export = path;
 }
 
-declare module "@mariozechner/pi-agent-core" {
+declare module "@earendil-works/pi-agent-core" {
 	export type AgentToolResult = any;
 }
 
-declare module "@mariozechner/pi-ai" {
+declare module "@earendil-works/pi-ai" {
 	export type TextContent = { type: "text"; text: string; textSignature?: string };
 	export type ImageContent = { type: "image"; data: string; mimeType: string };
 	export type Message = any;
 	export const StringEnum: any;
+	export const Type: any;
 }
 
-declare module "@mariozechner/pi-coding-agent" {
+declare module "@earendil-works/pi-coding-agent" {
 	export type ExtensionAPI = any;
 	export const getMarkdownTheme: any;
 	export const formatSize: any;
@@ -59,7 +60,7 @@ declare module "@mariozechner/pi-coding-agent" {
 	}
 }
 
-declare module "@mariozechner/pi-tui" {
+declare module "@earendil-works/pi-tui" {
 	export class Box {
 		constructor(...args: any[]);
 		addChild(...args: any[]): void;
@@ -88,11 +89,6 @@ declare module "@mariozechner/pi-tui" {
 		setText(...args: any[]): void;
 	}
 	export const matchesKey: any;
-}
-
-declare module "@sinclair/typebox" {
-	export const Type: any;
-	export type Static = any;
 }
 
 declare const process: any;

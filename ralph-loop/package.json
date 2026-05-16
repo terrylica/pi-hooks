@@ -1,6 +1,6 @@
 {
   "name": "ralph-loop-pi",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "description": "Ralph loop extension for pi-coding-agent - looped subagent execution",
   "type": "module",
   "keywords": [
@@ -14,14 +14,16 @@
   "author": "",
   "license": "MIT",
   "peerDependencies": {
-    "@mariozechner/pi-ai": "^0.50.0",
-    "@mariozechner/pi-coding-agent": "^0.50.0",
-    "@mariozechner/pi-tui": "^0.50.0"
+    "@earendil-works/pi-agent-core": "^0.74.0",
+    "@earendil-works/pi-ai": "^0.74.0",
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-tui": "^0.74.0"
   },
   "devDependencies": {
-    "@mariozechner/pi-ai": "^0.50.0",
-    "@mariozechner/pi-coding-agent": "^0.50.0",
-    "@mariozechner/pi-tui": "^0.50.0"
+    "@earendil-works/pi-agent-core": "^0.74.0",
+    "@earendil-works/pi-ai": "^0.74.0",
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@earendil-works/pi-tui": "^0.74.0"
   },
   "pi": {
     "extensions": [
